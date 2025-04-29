@@ -19,6 +19,9 @@ This project implements a Multi-Scale Convolutional Neural Network (MSCNN) for e
 ## Architecture
 
 ### Model Structure
+![MSCNN Architecture](static/architecture.png)
+*Figure 1: Multi-Scale CNN Architecture showing the parallel convolutional layers and feature extraction pipeline.*
+
 The MSCNN architecture consists of three main components:
 
 1. **Multi-Scale Blocks**
@@ -26,21 +29,80 @@ The MSCNN architecture consists of three main components:
    - Parallel convolutional layers with different kernel sizes
    - Batch normalization and ReLU activation
    - Output concatenation of all scales
+   - Example implementation:
+     ```python
+     class MultiScaleBlock(nn.Module):
+         def __init__(self, in_channels, out_channels):
+             super().__init__()
+             self.conv3 = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1)
+             self.conv5 = nn.Conv2d(in_channels, out_channels, kernel_size=5, padding=2)
+             self.conv7 = nn.Conv2d(in_channels, out_channels, kernel_size=7, padding=3)
+             self.bn = nn.BatchNorm2d(out_channels * 3)
+             self.relu = nn.ReLU()
+
+         def forward(self, x):
+             out3 = self.conv3(x)
+             out5 = self.conv5(x)
+             out7 = self.conv7(x)
+             out = torch.cat([out3, out5, out7], dim=1)
+             out = self.bn(out)
+             out = self.relu(out)
+             return out
+     ```
 
 2. **Feature Extraction**
    - Three multi-scale blocks with increasing channels (32, 64, 128)
    - Max pooling between blocks
    - Global average and max pooling at the end
+   - Example implementation:
+     ```python
+     class MSCNN(nn.Module):
+         def __init__(self, num_classes=50):
+             super().__init__()
+             self.block1 = MultiScaleBlock(1, 32)
+             self.pool1 = nn.MaxPool2d(2)
+             self.block2 = MultiScaleBlock(96, 64)  # 32*3 = 96
+             self.pool2 = nn.MaxPool2d(2)
+             self.block3 = MultiScaleBlock(192, 128)  # 64*3 = 192
+             self.pool3 = nn.MaxPool2d(2)
+             self.global_avg = nn.AdaptiveAvgPool2d((1, 1))
+             self.global_max = nn.AdaptiveMaxPool2d((1, 1))
+             self.classifier = nn.Linear(768, num_classes)
+             self.dropout = nn.Dropout(0.5)
+     ```
 
 3. **Classifier**
    - Fully connected layer with dropout
    - Output layer with 50 classes
+   - Example implementation:
+     ```python
+     def forward(self, x):
+         # Feature extraction
+         x = self.block1(x)
+         x = self.pool1(x)
+         x = self.block2(x)
+         x = self.pool2(x)
+         x = self.block3(x)
+         x = self.pool3(x)
+         
+         # Global pooling
+         avg = self.global_avg(x).squeeze(-1).squeeze(-1)
+         max_ = self.global_max(x).squeeze(-1).squeeze(-1)
+         x = torch.cat([avg, max_], dim=1)
+         
+         # Classification
+         x = self.dropout(x)
+         out = self.classifier(x)
+         return out
+     ```
 
 ### Key Features
 - Multi-scale feature extraction for capturing patterns at different resolutions
 - Batch normalization for stable training
 - Dropout for regularization
 - Global pooling for spatial invariance
+- Parallel processing of different kernel sizes
+- Progressive increase in feature channels (32 → 64 → 128)
 
 ## Dataset
 
@@ -300,7 +362,7 @@ This will:
 ## References
 
 1. ESC-50 Dataset: [https://github.com/karolpiczak/ESC-50](https://github.com/karolpiczak/ESC-50)
-2. Original Paper: Piczak, K. J. (2015). ESC: Dataset for Environmental Sound Classification. Proceedings of the 23rd Annual ACM Conference on Multimedia.
+2. Multi-Scale CNN Paper: Zhu, B., Wang, C., Liu, F., Lei, J., Huang, Z., Peng, Y., & Li, F. (2018). Learning environmental sounds with multi-scale convolutional neural network. In 2018 International Joint Conference on Neural Networks (IJCNN) (pp. 1-8). IEEE. [Paper Link](https://arxiv.org/pdf/1803.10219)
 
 ## Visual Examples
 

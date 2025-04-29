@@ -66,6 +66,8 @@ venv/
 .venv/
 cv-corpus-21.0-delta-2025-03-14/
 commonvoice_metadata.csv
-reports/ 
 *.log
 *.log.*
+
+
+ESC-50/

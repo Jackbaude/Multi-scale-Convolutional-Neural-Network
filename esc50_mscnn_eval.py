@@ -156,7 +156,7 @@ def main():
     
     # Load model
     model = MSCNN().to(device)
-    model.load_state_dict(torch.load('esc50_mscnn_model.pth', map_location=device))
+    model.load_state_dict(torch.load('models/esc50_mscnn_model_fold1_20250429_014358.pth', map_location=device))
     model.eval()
     logging.info("Model loaded successfully")
     
