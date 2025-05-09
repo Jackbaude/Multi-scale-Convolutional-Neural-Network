@@ -9,7 +9,6 @@ from datetime import datetime
 from tqdm import tqdm
 import json
 import torch.nn as nn
-import matplotlib.pyplot as plt
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 # Add parent directory to Python path
@@ -20,11 +19,11 @@ from utils.dataset import ESC50Dataset
 from utils.metrics import (
     plot_training_results,
     save_fold_results,
-    calculate_cross_validation_metrics,
     save_cross_validation_results,
+    calculate_cross_validation_metrics,
     plot_all_folds_results
 )
-from models.cnn import ESC50CNN
+from models.mscrnn import MSCRNN
 from utils.augmentations import apply_augmentations
 
 # Constants
@@ -39,6 +38,9 @@ TRAIN_TEST_SPLIT = 0.8
 RANDOM_SEED = 42
 NUM_EPOCHS = 100
 LEARNING_RATE = 0.001
+HIDDEN_SIZE = 256
+NUM_LAYERS = 2
+DROPOUT = 0.5
 N_SPLITS = 2
 
 # Setup directories first
@@ -50,7 +52,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler(f'reports/logs/cnn_training_{timestamp}.log'),
+        logging.FileHandler(f'reports/logs/mscrnn_training_{timestamp}.log'),
         logging.StreamHandler()
     ]
 )
@@ -270,6 +272,9 @@ def main():
     logger.info(f'Batch Size: {BATCH_SIZE}')
     logger.info(f'Number of Epochs: {NUM_EPOCHS}')
     logger.info(f'Learning Rate: {LEARNING_RATE}')
+    logger.info(f'Hidden Size: {HIDDEN_SIZE}')
+    logger.info(f'Number of Layers: {NUM_LAYERS}')
+    logger.info(f'Dropout: {DROPOUT}')
     logger.info(f'Number of Splits: {N_SPLITS}')
     
     # Create timestamp for this run
@@ -316,7 +321,12 @@ def main():
         )
         
         # Initialize model for this fold
-        model = ESC50CNN(num_classes=NUM_CLASSES)
+        model = MSCRNN(
+            num_classes=NUM_CLASSES,
+            hidden_size=HIDDEN_SIZE,
+            num_layers=NUM_LAYERS,
+            dropout=DROPOUT
+        )
         model = model.to(device)
         
         # Initialize optimizer and loss function
@@ -355,7 +365,7 @@ def main():
         plot_training_results(
             train_losses, val_losses, test_losses,
             val_accuracies, test_accuracies, history,
-            fold, timestamp, model_name='cnn'
+            fold, timestamp, model_name='mscrnn'
         )
         
         # Clear CUDA cache after each fold
@@ -368,7 +378,7 @@ def main():
     save_cross_validation_results(all_fold_results, timestamp)
     
     # Plot comprehensive results for all folds
-    plot_all_folds_results(all_fold_results, timestamp, model_name='cnn')
+    plot_all_folds_results(all_fold_results, timestamp, model_name='mscrnn')
 
 if __name__ == '__main__':
     main() 

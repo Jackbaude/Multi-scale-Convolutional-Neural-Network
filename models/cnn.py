@@ -7,6 +7,8 @@ from tqdm import tqdm
 import logging
 import os
 
+from utils.model_utils import extract_features
+
 logger = logging.getLogger(__name__)
 
 class ESC50CNN(nn.Module):
@@ -42,37 +44,6 @@ class ESC50CNN(nn.Module):
         self.fc1 = nn.Linear(128, 256)
         self.dropout = nn.Dropout(0.5)
         self.fc2 = nn.Linear(256, num_classes)
-        
-    def extract_features(self, audio_path, device=None):
-        # Load audio
-        waveform, sr = torchaudio.load(audio_path)
-        
-        # Convert to mono if needed
-        if waveform.shape[0] > 1:
-            waveform = torch.mean(waveform, dim=0, keepdim=True)
-            
-        # Resample if needed
-        if sr != self.SAMPLE_RATE:
-            resampler = torchaudio.transforms.Resample(sr, self.SAMPLE_RATE)
-            waveform = resampler(waveform)
-            
-        # Move waveform to device if specified
-        if device is not None:
-            waveform = waveform.to(device)
-            self.mel_transform = self.mel_transform.to(device)
-            
-        # Convert to mel spectrogram
-        mel_spec = self.mel_transform(waveform)
-        
-        # Convert to log scale
-        mel_spec = torch.log(mel_spec + 1e-6)
-        
-        # Normalize
-        mean = mel_spec.mean()
-        std = mel_spec.std()
-        mel_spec = (mel_spec - mean) / (std + 1e-6)
-        
-        return mel_spec
         
     def forward(self, x):
         # Add channel dimension if needed
@@ -130,7 +101,12 @@ class ESC50CNN(nn.Module):
                 
                 for idx in batch_indices:
                     audio_path = os.path.join(original_dataset.audio_dir, original_dataset.meta_data.iloc[idx]['filename'])
-                    features = self.extract_features(audio_path, device=device)
+                    features = extract_features(
+                        audio_path=audio_path,
+                        mel_transform=self.mel_transform,
+                        sample_rate=self.SAMPLE_RATE,
+                        device=device
+                    )
                     batch_features.append(features)
                     batch_labels.append(original_dataset.meta_data.iloc[idx]['target'])
                 
@@ -163,7 +139,12 @@ class ESC50CNN(nn.Module):
         with torch.no_grad():
             for idx in tqdm(dataset.indices, desc='Predicting'):
                 audio_path = os.path.join(dataset.dataset.audio_dir, dataset.dataset.meta_data.iloc[idx]['filename'])
-                features = self.extract_features(audio_path, device=device)
+                features = extract_features(
+                    audio_path=audio_path,
+                    mel_transform=self.mel_transform,
+                    sample_rate=self.SAMPLE_RATE,
+                    device=device
+                )
                 features = features.unsqueeze(0)  # Add batch dimension
                 outputs = self(features)
                 pred = torch.argmax(outputs, dim=1)
@@ -178,7 +159,12 @@ class ESC50CNN(nn.Module):
         with torch.no_grad():
             for idx in tqdm(dataset.indices, desc='Predicting probabilities'):
                 audio_path = os.path.join(dataset.dataset.audio_dir, dataset.dataset.meta_data.iloc[idx]['filename'])
-                features = self.extract_features(audio_path, device=device)
+                features = extract_features(
+                    audio_path=audio_path,
+                    mel_transform=self.mel_transform,
+                    sample_rate=self.SAMPLE_RATE,
+                    device=device
+                )
                 features = features.unsqueeze(0)  # Add batch dimension
                 outputs = self(features)
                 probs = F.softmax(outputs, dim=1)

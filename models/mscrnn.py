@@ -29,8 +29,8 @@ class MultiScaleBlock(nn.Module):
         out = self.relu(out)
         return out
 
-class MSCNN(nn.Module):
-    def __init__(self, num_classes=50):
+class MSCRNN(nn.Module):
+    def __init__(self, num_classes=50, hidden_size=256, num_layers=2, dropout=0.5):
         super().__init__()
         
         # Constants for audio processing
@@ -47,21 +47,32 @@ class MSCNN(nn.Module):
             n_mels=self.N_MELS
         )
         
-        # Multi-scale blocks
-        self.block1 = MultiScaleBlock(1, 32)  # Input: 1 channel, Output: 96 channels (32*3)
-        self.block2 = MultiScaleBlock(96, 64)  # Input: 96 channels, Output: 192 channels (64*3)
-        self.block3 = MultiScaleBlock(192, 128)  # Input: 192 channels, Output: 384 channels (128*3)
+        # Multi-scale CNN layers
+        self.conv1_1 = nn.Conv2d(1, 32, kernel_size=3, padding=1)
+        self.bn1_1 = nn.BatchNorm2d(32)
+        self.conv1_2 = nn.Conv2d(1, 32, kernel_size=5, padding=2)
+        self.bn1_2 = nn.BatchNorm2d(32)
+        self.conv1_3 = nn.Conv2d(1, 32, kernel_size=7, padding=3)
+        self.bn1_3 = nn.BatchNorm2d(32)
         
-        # Final convolution to reduce channels
-        self.conv_final = nn.Conv2d(384, 128, kernel_size=1)
-        self.bn_final = nn.BatchNorm2d(128)
+        self.conv2 = nn.Conv2d(96, 64, kernel_size=3, padding=1)
+        self.bn2 = nn.BatchNorm2d(64)
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
+        self.bn3 = nn.BatchNorm2d(128)
         
-        # Global average pooling
-        self.global_pool = nn.AdaptiveAvgPool2d(1)
+        # RNN layers
+        self.rnn = nn.GRU(
+            input_size=128,  # Number of channels from CNN
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            batch_first=True,
+            bidirectional=True,
+            dropout=dropout if num_layers > 1 else 0
+        )
         
         # Fully connected layers
-        self.fc1 = nn.Linear(128, 256)
-        self.dropout = nn.Dropout(0.5)
+        self.fc1 = nn.Linear(hidden_size * 2, 256)  # *2 for bidirectional
+        self.dropout = nn.Dropout(dropout)
         self.fc2 = nn.Linear(256, num_classes)
 
     def forward(self, x):
@@ -69,26 +80,51 @@ class MSCNN(nn.Module):
         if x.dim() == 3:
             x = x.unsqueeze(1)
             
-        # Multi-scale blocks
-        x = self.block1(x)
-        x = F.max_pool2d(x, 2)
+        # First block - parallel multi-scale convolutions
+        x1 = self.conv1_1(x)
+        x1 = self.bn1_1(x1)
+        x1 = F.relu(x1)
         
-        x = self.block2(x)
-        x = F.max_pool2d(x, 2)
+        x2 = self.conv1_2(x)
+        x2 = self.bn1_2(x2)
+        x2 = F.relu(x2)
         
-        x = self.block3(x)
-        x = F.max_pool2d(x, 2)
+        x3 = self.conv1_3(x)
+        x3 = self.bn1_3(x3)
+        x3 = F.relu(x3)
         
-        # Final convolution and pooling
-        x = F.relu(self.bn_final(self.conv_final(x)))
-        x = self.global_pool(x).squeeze(-1).squeeze(-1)
+        # Concatenate multi-scale features
+        x = torch.cat([x1, x2, x3], dim=1)
+        
+        # Second block
+        x = self.conv2(x)
+        x = self.bn2(x)
+        x = F.relu(x)
+        
+        # Third block
+        x = self.conv3(x)
+        x = self.bn3(x)
+        x = F.relu(x)
+        
+        # Reshape for RNN: [batch, channels, height, width] -> [batch, width, channels]
+        # First, average pool over the height dimension to get [batch, channels, width]
+        x = torch.mean(x, dim=2)  # Average over height dimension
+        
+        # Then permute to [batch, width, channels]
+        x = x.permute(0, 2, 1)
+        
+        # RNN layers
+        x, _ = self.rnn(x)  # [batch, width, hidden_size*2]
+        
+        # Temporal pooling (average over time)
+        x = torch.mean(x, dim=1)  # [batch, hidden_size*2]
         
         # Fully connected layers
         x = F.relu(self.fc1(x))
         x = self.dropout(x)
-        out = self.fc2(x)
+        x = self.fc2(x)
         
-        return out
+        return x
         
     def fit(self, dataset, device, num_epochs=100, batch_size=32, learning_rate=0.001):
         # Get the original dataset from the Subset

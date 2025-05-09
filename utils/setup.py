@@ -5,10 +5,11 @@ from datetime import datetime
 def setup_directories():
     """Create necessary directories for the project."""
     directories = [
+        'reports',
         'reports/figures',
         'reports/logs',
         'models',
-        'data'
+        'built_models',
     ]
     
     for directory in directories:

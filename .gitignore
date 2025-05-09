@@ -71,3 +71,7 @@ commonvoice_metadata.csv
 
 
 ESC-50/
+reports/
+built_models/
+reports/figures/
+reports/logs/

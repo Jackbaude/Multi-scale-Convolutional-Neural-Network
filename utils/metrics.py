@@ -2,11 +2,12 @@ import numpy as np
 import logging
 import matplotlib.pyplot as plt
 import seaborn as sns
-from sklearn.metrics import confusion_matrix, classification_report
+from sklearn.metrics import confusion_matrix, classification_report, roc_curve, auc, precision_recall_curve, average_precision_score
 import json
 import os
 from datetime import datetime
 import torch
+from itertools import cycle
 
 def calculate_average_metrics(metrics_list):
     """Calculate average and standard deviation of metrics across folds."""
@@ -236,4 +237,144 @@ def plot_all_folds_results(all_fold_results, timestamp, model_name):
     # Adjust layout and save
     plt.tight_layout()
     plt.savefig(f'reports/figures/{model_name}_all_folds_results_{timestamp}.png')
-    plt.close() 
+    plt.close()
+
+def plot_roc_curves(y_true, y_pred_proba, class_names, save_path):
+    """Plot ROC curves for each class and save to file."""
+    n_classes = len(class_names)
+    plt.figure(figsize=(10, 8))
+    
+    # Compute ROC curve and ROC area for each class
+    fpr = dict()
+    tpr = dict()
+    roc_auc = dict()
+    
+    for i in range(n_classes):
+        fpr[i], tpr[i], _ = roc_curve(y_true == i, y_pred_proba[:, i])
+        roc_auc[i] = auc(fpr[i], tpr[i])
+    
+    # Plot all ROC curves
+    colors = cycle(['aqua', 'darkorange', 'cornflowerblue', 'red', 'green', 'purple'])
+    for i, color in zip(range(n_classes), colors):
+        plt.plot(fpr[i], tpr[i], color=color, lw=2,
+                 label='ROC curve of class {0} (area = {1:0.2f})'
+                 ''.format(class_names[i], roc_auc[i]))
+    
+    plt.plot([0, 1], [0, 1], 'k--', lw=2)
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('Receiver Operating Characteristic (ROC) Curves')
+    plt.legend(loc="lower right")
+    plt.tight_layout()
+    plt.savefig(f'{save_path}/roc_curves.png')
+    plt.close()
+
+def plot_precision_recall_curves(y_true, y_pred_proba, class_names, save_path):
+    """Plot precision-recall curves for each class and save to file."""
+    n_classes = len(class_names)
+    plt.figure(figsize=(10, 8))
+    
+    # Compute precision-recall curve and area for each class
+    precision = dict()
+    recall = dict()
+    average_precision = dict()
+    
+    for i in range(n_classes):
+        precision[i], recall[i], _ = precision_recall_curve(y_true == i, y_pred_proba[:, i])
+        average_precision[i] = average_precision_score(y_true == i, y_pred_proba[:, i])
+    
+    # Plot all precision-recall curves
+    colors = cycle(['aqua', 'darkorange', 'cornflowerblue', 'red', 'green', 'purple'])
+    for i, color in zip(range(n_classes), colors):
+        plt.plot(recall[i], precision[i], color=color, lw=2,
+                 label='PR curve of class {0} (AP = {1:0.2f})'
+                 ''.format(class_names[i], average_precision[i]))
+    
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('Recall')
+    plt.ylabel('Precision')
+    plt.title('Precision-Recall Curves')
+    plt.legend(loc="lower left")
+    plt.tight_layout()
+    plt.savefig(f'{save_path}/precision_recall_curves.png')
+    plt.close()
+
+def plot_class_distribution(y_true, class_names, save_path):
+    """Plot the distribution of classes in the dataset."""
+    plt.figure(figsize=(12, 6))
+    counts = np.bincount(y_true)
+    plt.bar(range(len(class_names)), counts)
+    plt.xticks(range(len(class_names)), class_names, rotation=45, ha='right')
+    plt.xlabel('Class')
+    plt.ylabel('Count')
+    plt.title('Class Distribution')
+    plt.tight_layout()
+    plt.savefig(f'{save_path}/class_distribution.png')
+    plt.close()
+
+def plot_error_analysis(y_true, y_pred, y_pred_proba, class_names, save_path):
+    """Plot error analysis including confidence distributions and misclassification patterns."""
+    # Plot confidence distribution for correct and incorrect predictions
+    plt.figure(figsize=(12, 6))
+    correct_mask = y_true == y_pred
+    correct_confidences = np.max(y_pred_proba[correct_mask], axis=1)
+    incorrect_confidences = np.max(y_pred_proba[~correct_mask], axis=1)
+    
+    plt.hist(correct_confidences, bins=20, alpha=0.5, label='Correct Predictions')
+    plt.hist(incorrect_confidences, bins=20, alpha=0.5, label='Incorrect Predictions')
+    plt.xlabel('Confidence')
+    plt.ylabel('Count')
+    plt.title('Confidence Distribution for Correct vs Incorrect Predictions')
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(f'{save_path}/confidence_distribution.png')
+    plt.close()
+    
+    # Plot misclassification patterns
+    misclassified = np.where(y_true != y_pred)[0]
+    if len(misclassified) > 0:
+        plt.figure(figsize=(12, 6))
+        misclass_counts = np.bincount(y_true[misclassified], minlength=len(class_names))
+        plt.bar(range(len(class_names)), misclass_counts)
+        plt.xticks(range(len(class_names)), class_names, rotation=45, ha='right')
+        plt.xlabel('True Class')
+        plt.ylabel('Number of Misclassifications')
+        plt.title('Misclassification Patterns by True Class')
+        plt.tight_layout()
+        plt.savefig(f'{save_path}/misclassification_patterns.png')
+        plt.close()
+
+def generate_comprehensive_report(model, y_true, y_pred, y_pred_proba, class_names, save_dir):
+    """Generate a comprehensive report including all metrics and visualizations."""
+    os.makedirs(save_dir, exist_ok=True)
+    
+    # Save confusion matrix
+    plot_confusion_matrix(y_true, y_pred, class_names, f'{save_dir}/confusion_matrix.png')
+    
+    # Save classification report
+    save_classification_report(y_true, y_pred, class_names, f'{save_dir}/classification_report.txt')
+    
+    # Plot ROC curves
+    plot_roc_curves(y_true, y_pred_proba, class_names, save_dir)
+    
+    # Plot precision-recall curves
+    plot_precision_recall_curves(y_true, y_pred_proba, class_names, save_dir)
+    
+    # Plot class distribution
+    plot_class_distribution(y_true, class_names, save_dir)
+    
+    # Plot error analysis
+    plot_error_analysis(y_true, y_pred, y_pred_proba, class_names, save_dir)
+    
+    # Save raw metrics
+    metrics = {
+        'accuracy': np.mean(y_true == y_pred),
+        'confusion_matrix': confusion_matrix(y_true, y_pred).tolist(),
+        'classification_report': classification_report(y_true, y_pred, target_names=class_names, output_dict=True)
+    }
+    
+    with open(f'{save_dir}/metrics.json', 'w') as f:
+        json.dump(metrics, f, indent=4) 

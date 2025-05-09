@@ -11,26 +11,8 @@ from utils.model_utils import extract_features
 
 logger = logging.getLogger(__name__)
 
-class MultiScaleBlock(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super().__init__()
-        self.conv3 = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1)
-        self.conv5 = nn.Conv2d(in_channels, out_channels, kernel_size=5, padding=2)
-        self.conv7 = nn.Conv2d(in_channels, out_channels, kernel_size=7, padding=3)
-        self.bn = nn.BatchNorm2d(out_channels * 3)
-        self.relu = nn.ReLU()
-
-    def forward(self, x):
-        out3 = self.conv3(x)
-        out5 = self.conv5(x)
-        out7 = self.conv7(x)
-        out = torch.cat([out3, out5, out7], dim=1)
-        out = self.bn(out)
-        out = self.relu(out)
-        return out
-
-class MSCNN(nn.Module):
-    def __init__(self, num_classes=50):
+class ESC50CRNN(nn.Module):
+    def __init__(self, num_classes=50, hidden_size=256, num_layers=2, dropout=0.5):
         super().__init__()
         
         # Constants for audio processing
@@ -47,48 +29,63 @@ class MSCNN(nn.Module):
             n_mels=self.N_MELS
         )
         
-        # Multi-scale blocks
-        self.block1 = MultiScaleBlock(1, 32)  # Input: 1 channel, Output: 96 channels (32*3)
-        self.block2 = MultiScaleBlock(96, 64)  # Input: 96 channels, Output: 192 channels (64*3)
-        self.block3 = MultiScaleBlock(192, 128)  # Input: 192 channels, Output: 384 channels (128*3)
+        # CNN layers for feature extraction
+        self.conv1 = nn.Conv2d(1, 32, kernel_size=3, padding=1)
+        self.bn1 = nn.BatchNorm2d(32)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
+        self.bn2 = nn.BatchNorm2d(64)
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
+        self.bn3 = nn.BatchNorm2d(128)
         
-        # Final convolution to reduce channels
-        self.conv_final = nn.Conv2d(384, 128, kernel_size=1)
-        self.bn_final = nn.BatchNorm2d(128)
-        
-        # Global average pooling
-        self.global_pool = nn.AdaptiveAvgPool2d(1)
+        # RNN layers for temporal modeling
+        self.rnn = nn.GRU(
+            input_size=128,  # Number of channels from CNN
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            batch_first=True,
+            bidirectional=True,
+            dropout=dropout if num_layers > 1 else 0
+        )
         
         # Fully connected layers
-        self.fc1 = nn.Linear(128, 256)
-        self.dropout = nn.Dropout(0.5)
+        self.fc1 = nn.Linear(hidden_size * 2, 256)  # *2 for bidirectional
+        self.dropout = nn.Dropout(dropout)
         self.fc2 = nn.Linear(256, num_classes)
-
+        
     def forward(self, x):
-        # Ensure input is 4D (batch, channel, height, width)
+        # Add channel dimension if needed
         if x.dim() == 3:
             x = x.unsqueeze(1)
             
-        # Multi-scale blocks
-        x = self.block1(x)
+        # Convolutional layers
+        x = F.relu(self.bn1(self.conv1(x)))
         x = F.max_pool2d(x, 2)
         
-        x = self.block2(x)
+        x = F.relu(self.bn2(self.conv2(x)))
         x = F.max_pool2d(x, 2)
         
-        x = self.block3(x)
+        x = F.relu(self.bn3(self.conv3(x)))
         x = F.max_pool2d(x, 2)
         
-        # Final convolution and pooling
-        x = F.relu(self.bn_final(self.conv_final(x)))
-        x = self.global_pool(x).squeeze(-1).squeeze(-1)
+        # Reshape for RNN: [batch, channels, height, width] -> [batch, width, channels]
+        # First, average pool over the height dimension to get [batch, channels, width]
+        x = torch.mean(x, dim=2)  # Average over height dimension
+        
+        # Then permute to [batch, width, channels]
+        x = x.permute(0, 2, 1)
+        
+        # RNN layers
+        x, _ = self.rnn(x)  # [batch, width, hidden_size*2]
+        
+        # Temporal pooling (average over time)
+        x = torch.mean(x, dim=1)  # [batch, hidden_size*2]
         
         # Fully connected layers
         x = F.relu(self.fc1(x))
         x = self.dropout(x)
-        out = self.fc2(x)
+        x = self.fc2(x)
         
-        return out
+        return x
         
     def fit(self, dataset, device, num_epochs=100, batch_size=32, learning_rate=0.001):
         # Get the original dataset from the Subset

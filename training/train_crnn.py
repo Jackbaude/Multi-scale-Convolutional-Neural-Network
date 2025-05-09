@@ -24,7 +24,7 @@ from utils.metrics import (
     save_cross_validation_results,
     plot_all_folds_results
 )
-from models.cnn import ESC50CNN
+from models.crnn import ESC50CRNN
 from utils.augmentations import apply_augmentations
 
 # Constants
@@ -39,6 +39,9 @@ TRAIN_TEST_SPLIT = 0.8
 RANDOM_SEED = 42
 NUM_EPOCHS = 100
 LEARNING_RATE = 0.001
+HIDDEN_SIZE = 256
+NUM_LAYERS = 2
+DROPOUT = 0.5
 N_SPLITS = 2
 
 # Setup directories first
@@ -50,7 +53,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler(f'reports/logs/cnn_training_{timestamp}.log'),
+        logging.FileHandler(f'reports/logs/crnn_training_{timestamp}.log'),
         logging.StreamHandler()
     ]
 )
@@ -145,6 +148,7 @@ def train_model(model, train_loader, val_loader, test_loader, criterion, optimiz
             val_pbar = tqdm(val_loader, desc='Validation', leave=False, position=1)
             for inputs, labels in val_pbar:
                 inputs, labels = inputs.to(device), labels.to(device)
+                labels = labels.long()  # Convert labels to Long type
                 outputs = model(inputs)
                 loss = criterion(outputs, labels)
                 val_loss += loss.item()
@@ -164,6 +168,7 @@ def train_model(model, train_loader, val_loader, test_loader, criterion, optimiz
             test_pbar = tqdm(test_loader, desc='Testing', leave=False, position=1)
             for inputs, labels in test_pbar:
                 inputs, labels = inputs.to(device), labels.to(device)
+                labels = labels.long()  # Convert labels to Long type
                 outputs = model(inputs)
                 loss = criterion(outputs, labels)
                 test_loss += loss.item()
@@ -228,6 +233,7 @@ def train_model(model, train_loader, val_loader, test_loader, criterion, optimiz
         test_pbar = tqdm(test_loader, desc='Final Evaluation', leave=False)
         for inputs, labels in test_pbar:
             inputs, labels = inputs.to(device), labels.to(device)
+            labels = labels.long()  # Convert labels to Long type
             outputs = model(inputs)
             
             # Store predictions
@@ -270,6 +276,9 @@ def main():
     logger.info(f'Batch Size: {BATCH_SIZE}')
     logger.info(f'Number of Epochs: {NUM_EPOCHS}')
     logger.info(f'Learning Rate: {LEARNING_RATE}')
+    logger.info(f'Hidden Size: {HIDDEN_SIZE}')
+    logger.info(f'Number of Layers: {NUM_LAYERS}')
+    logger.info(f'Dropout: {DROPOUT}')
     logger.info(f'Number of Splits: {N_SPLITS}')
     
     # Create timestamp for this run
@@ -316,7 +325,12 @@ def main():
         )
         
         # Initialize model for this fold
-        model = ESC50CNN(num_classes=NUM_CLASSES)
+        model = ESC50CRNN(
+            num_classes=NUM_CLASSES,
+            hidden_size=HIDDEN_SIZE,
+            num_layers=NUM_LAYERS,
+            dropout=DROPOUT
+        )
         model = model.to(device)
         
         # Initialize optimizer and loss function
@@ -355,7 +369,7 @@ def main():
         plot_training_results(
             train_losses, val_losses, test_losses,
             val_accuracies, test_accuracies, history,
-            fold, timestamp, model_name='cnn'
+            fold, timestamp, model_name='crnn'
         )
         
         # Clear CUDA cache after each fold
@@ -368,7 +382,7 @@ def main():
     save_cross_validation_results(all_fold_results, timestamp)
     
     # Plot comprehensive results for all folds
-    plot_all_folds_results(all_fold_results, timestamp, model_name='cnn')
+    plot_all_folds_results(all_fold_results, timestamp, model_name='crnn')
 
 if __name__ == '__main__':
     main() 
